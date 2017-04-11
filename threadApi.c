@@ -1,8 +1,19 @@
 #include "threadApi.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <memory.h>
 
+static 
 blocked_pool_t gl_blocked_th_pool;
+
+static 
+pthread_mutex_t wait_mutex;
+
+void
+init_thread_lib(unsigned int max_threads){
+	init_blocked_pool(&gl_blocked_th_pool, max_threads);
+	pthread_mutex_init(&wait_mutex, NULL);
+}
 
 
 _pthread_t*
@@ -183,15 +194,15 @@ void cleanup_pthread(_pthread_t *thread)
 }
 
 void
-wait_t (_pthread_t *thread_to_block, pthread_mutex_t *mutex, unsigned int line_no){
-        pthread_mutex_lock(mutex);
+wait_t (_pthread_t *thread_to_block, unsigned int line_no){
+        pthread_mutex_lock(&wait_mutex);
         thread_to_block->isWaiting = TRUE;
-        if(pthread_cond_wait (&(thread_to_block->cond), mutex)){
+        if(pthread_cond_wait (&(thread_to_block->cond), &wait_mutex)){
             printf("pthread_cond_wait failed, thread id = %d, line_no = %d", thread_to_block->selfid, line_no);
             thread_to_block->isWaiting = FALSE;
             pthread_exit(NULL);
         }
-        pthread_mutex_unlock(mutex);
+        pthread_mutex_unlock(&wait_mutex);
 }
 
 void
@@ -204,13 +215,80 @@ signal_t (_pthread_t *signalled_thread){
     signalled_thread->resume_thread_id = 0;
 }
 
-void tentative_wait(_pthread_t *thread, pthread_mutex_t *mutex){
+void tentative_wait(_pthread_t *thread){
 	if(is_thread_in_block_pool_mutex(0, &gl_blocked_th_pool) > -1)
-		wait_t(thread, mutex, __LINE__);
+		wait_t(thread,  __LINE__);
 
 }
 
 void
 send_wait_order(_pthread_t *thread){
 	add_thread_to_pool(&gl_blocked_th_pool, thread);
+}
+
+int
+wait_event(_pthread_t *thread, wait_queue_t *wait_q){
+
+	char res = 0;
+	pthread_mutex_lock(wait_q->mutex);
+	res = wait_q->condn_callback_fn(wait_q->fn_arg);
+	if(res){
+		/* thread should get block*/
+		if(enqueue(wait_q->q, thread) == 0){
+			pthread_mutex_unlock(wait_q->mutex);
+			return -1;
+		}
+
+		wait_t (thread, __LINE__);	
+	}
+	else{
+		/* thread should not get block - Dont do anything*/
+	}
+	pthread_mutex_unlock(wait_q->mutex);
+	return 0;
+}
+
+void
+wake_up(wait_queue_t *wait_q){
+
+	char res = 0;
+	_pthread_t *thread = NULL;
+	int i  = 0, j = wait_q->q->count;
+	struct Queue_t *q = wait_q->q;
+
+	pthread_mutex_lock(wait_q->mutex);
+	for(i = 0; i < j; i++){
+		res = wait_q->condn_callback_fn(wait_q->fn_arg);
+		if(res){
+			/* stay blocked*/
+			enqueue(q, deque(q));
+		}
+		else{
+			thread = deque(q);
+			signal_t(thread);
+		}
+	}
+	pthread_mutex_unlock(wait_q->mutex);	
+}
+
+void
+init_wait_Queue(wait_queue_t *wait_q, condn_check_fn fn, void *fn_arg){
+        memset(wait_q, 0, sizeof(wait_queue_t));
+	wait_q->q = initQ();
+	wait_q->condn_callback_fn = fn;
+	wait_q->fn_arg = fn_arg;
+	pthread_mutex_t *mutex = calloc(1, sizeof(pthread_mutex_t));
+	pthread_mutex_init(mutex, NULL);
+	wait_q->mutex = mutex;
+}
+
+/* fn arg, and wait_q itself needs to be freed in the caller*/
+void
+free_wait_queue_internals(wait_queue_t *wait_q){
+	free(wait_q->q);
+	free(wait_q->mutex);
+	wait_q->mutex = NULL;
+	wait_q->q = NULL;
+	wait_q->condn_callback_fn = NULL;
+	//wait_q->fn_arg = NULL;
 }

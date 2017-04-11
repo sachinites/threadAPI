@@ -21,6 +21,8 @@
 
 #define MAX_POOL_SIZE 100
 
+#include "Queue.h"
+
 typedef struct _pthread_t_{
     pthread_t pthread_handle;
     unsigned int selfid;             
@@ -36,8 +38,21 @@ typedef struct _pool_blocked_threads_{
      pthread_mutex_t pool_mutex;
 } blocked_pool_t;
 
+typedef char (*condn_check_fn)(void *);
+
+typedef struct _wait_queue_t{
+	struct Queue_t *q;
+	condn_check_fn condn_callback_fn;
+	void *fn_arg;
+	pthread_mutex_t *mutex;	
+} wait_queue_t;
+
+
 void 
 dump_block_pool(blocked_pool_t *block_pool);
+
+void
+init_thread_lib(unsigned int max_threads);
 
 int 
 is_thread_in_block_pool(unsigned int thid, blocked_pool_t *block_pool);
@@ -71,7 +86,7 @@ void
 dump_thread_DS(_pthread_t *thread);
 
 void 
-wait_t (_pthread_t *thread_to_block, pthread_mutex_t *mutex, unsigned int line_no);
+wait_t (_pthread_t *thread_to_block, unsigned int line_no);
 
 void 
 signal_t (_pthread_t *signalled_thread);
@@ -82,6 +97,19 @@ pthread_init(_pthread_t *_pthread, unsigned int tid, unsigned int JOINABLE);
 void 
 cleanup_pthread(_pthread_t *thread);
 
-void tentative_wait(_pthread_t *thread, pthread_mutex_t *mutex);
+void tentative_wait(_pthread_t *thread);
+
+void
+init_wait_Queue(wait_queue_t *wait_q, condn_check_fn fn, void *fn_arg);
+
+void
+free_wait_queue_internals(wait_queue_t *wait_q);
+
+int
+wait_event(_pthread_t *thread, 
+	    wait_queue_t *wait_q);
+
+void
+wake_up(wait_queue_t *wait_q);
 
 #endif
