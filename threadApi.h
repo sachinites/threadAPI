@@ -27,7 +27,7 @@ typedef struct _pthread_t_{
     char isWaiting;         
     unsigned int resume_thread_id; 
     pthread_attr_t attr;   
-    pthread_cond_t cond;   
+    pthread_cond_t cond;
 } _pthread_t;
 
 typedef struct _pool_blocked_threads_{
